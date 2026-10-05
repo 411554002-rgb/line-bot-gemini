@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINE Bot × Google Gemini 專案成果報告</title>
+  <style>
+    :root {
+      --line-green: #06C755;
+      --google-blue: #1a73e8;
+      --dark: #1e293b;
+      --text: #374151;
+      --muted: #6b7280;
+      --bg: #f8fafc;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --warning: #d97706;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Microsoft JhengHei", "PingFang TC", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 40px 20px;
+      line-height: 1.75;
+    }
+
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    /* ── COVER ── */
+    .cover {
+      background: linear-gradient(135deg, #06C755 0%, #04a847 40%, #1a73e8 100%);
+      color: white;
+      padding: 70px 60px 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover::after {
+      content: "";
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 320px; height: 320px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.07);
+    }
+    .cover-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.4);
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    .cover h1 {
+      font-size: 32px;
+      font-weight: 900;
+      line-height: 1.3;
+      margin-bottom: 16px;
+    }
+    .cover p { font-size: 15px; opacity: 0.85; max-width: 560px; }
+    .cover-meta {
+      margin-top: 36px;
+      display: flex;
+      gap: 32px;
+      font-size: 13px;
+      opacity: 0.8;
+    }
+    .cover-meta span strong { display: block; opacity: 1; font-size: 15px; color: white; }
+
+    /* ── BODY ── */
+    .body { padding: 50px 60px; }
+
+    h2 {
+      font-size: 20px;
+      color: var(--dark);
+      margin: 44px 0 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--line-green);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h2 .icon { font-size: 22px; }
+
+    h3 {
+      font-size: 15px;
+      color: var(--dark);
+      font-weight: 700;
+      margin: 20px 0 8px;
+    }
+
+    p { margin-bottom: 12px; font-size: 14.5px; }
+
+    /* ── CHAT LOG ── */
+    .chat-section { margin: 20px 0; }
+
+    .chat-bubble {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+      align-items: flex-start;
+    }
+    .chat-bubble.user { flex-direction: row-reverse; }
+
+    .avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .avatar.ai { background: linear-gradient(135deg, #06C755, #1a73e8); }
+    .avatar.user { background: #fbbf24; }
+
+    .bubble {
+      max-width: 75%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      line-height: 1.65;
+    }
+    .bubble.ai {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 4px 12px 12px 12px;
+    }
+    .bubble.user {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 12px 4px 12px 12px;
+      text-align: right;
+    }
+    .bubble-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .bubble.user .bubble-label { text-align: right; }
+
+    /* ── TIMELINE ── */
+    .timeline { margin: 24px 0; padding-left: 0; list-style: none; }
+    .timeline li {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .tl-dot {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--line-green);
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .tl-dot.done { background: var(--success); }
+    .tl-dot.warn { background: var(--warning); }
+    .tl-content h4 { font-size: 14px; font-weight: 700; color: var(--dark); margin-bottom: 4px; }
+    .tl-content p { font-size: 13px; color: var(--muted); margin: 0; }
+
+    /* ── FILES ── */
+    .file-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin: 20px 0;
+    }
+    .file-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fafafa;
+    }
+    .file-card .fname {
+      font-family: "Courier New", monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--google-blue);
+      margin-bottom: 6px;
+    }
+    .file-card p { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+    /* ── CODE ── */
+    .code-block {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: "Courier New", monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+      margin: 14px 0;
+      overflow-x: auto;
+    }
+    .code-block .comment { color: #64748b; }
+    .code-block .key { color: #7dd3fc; }
+    .code-block .val { color: #86efac; }
+
+    /* ── PROBLEM TABLE ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 700;
+      color: var(--dark);
+    }
+    tr:nth-child(even) { background: #fafafa; }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .tag.solved { background: #dcfce7; color: #15803d; }
+    .tag.tip { background: #fef3c7; color: #92400e; }
+
+    /* ── ARCH ── */
+    .arch {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 16px 0;
+      text-align: center;
+      font-size: 13px;
+    }
+    .arch-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin: 8px 0;
+      flex-wrap: wrap;
+    }
+    .arch-box {
+      background: white;
+      border: 1.5px solid #94a3b8;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .arch-box.green { border-color: var(--line-green); color: var(--line-green); }
+    .arch-box.blue { border-color: var(--google-blue); color: var(--google-blue); }
+    .arch-box.gray { background: #f1f5f9; border-color: #94a3b8; }
+    .arch-arrow { font-size: 18px; margin: 0 6px; color: #94a3b8; }
+
+    /* ── SUCCESS BOX ── */
+    .success-box {
+      background: linear-gradient(135deg, #f0fdf4, #eff6ff);
+      border: 1.5px solid #86efac;
+      border-radius: 10px;
+      padding: 24px 28px;
+      margin: 24px 0;
+    }
+    .success-box h3 { color: var(--success); font-size: 18px; margin-bottom: 10px; }
+    .success-box p { font-size: 14px; margin: 0; }
+
+    /* ── FOOTER ── */
+    .footer {
+      background: var(--dark);
+      color: #94a3b8;
+      padding: 30px 60px;
+      font-size: 12.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer strong { color: white; }
+
+    /* ── PRINT BTN ── */
+    .print-btn {
+      position: fixed;
+      bottom: 28px; right: 28px;
+      background: var(--line-green);
+      color: white;
+      border: none;
+      padding: 12px 22px;
+      border-radius: 30px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(6,199,85,0.45);
+      display: flex; align-items: center; gap: 8px;
+      transition: all 0.2s;
+    }
+    .print-btn:hover { transform: translateY(-2px); background: #04a847; }
+
+    @media print {
+      body { background: white; padding: 0; }
+      .page { border-radius: 0; box-shadow: none; }
+      .print-btn { display: none; }
+      .body { padding: 30px 40px; }
+      .cover { padding: 40px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- COVER -->
+  <div class="cover">
+    <div class="cover-badge">✦ 專案成果報告書</div>
+    <h1>LINE Bot × Google Gemini<br>智慧對話機器人建置報告</h1>
+    <p>記錄從零到上線的完整歷程——包含架構設計、金鑰配置、除錯過程，以及最終成功運作的成果展示。</p>
+    <div class="cover-meta">
+      <span><strong>完成日期</strong>2026 年 10 月 5 日</span>
+      <span><strong>開發語言</strong>Python 3.13</span>
+      <span><strong>狀態</strong>✅ 運作中</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- 1. 專案概述 -->
+    <h2><span class="icon">📋</span> 一、專案概述</h2>
+    <p>本次專案目標是建立一個能讓使用者在 <strong>LINE</strong> 聊天室中與 <strong>Google Gemini AI</strong> 對話的智慧機器人，整個過程從構想、程式開發、金鑰申請、除錯，到最終成功上線，全程在單次對話中完成。</p>
+
+    <!-- 架構圖 -->
+    <div class="arch">
+      <div style="font-weight:700; margin-bottom:16px; color:var(--dark);">系統訊息流向</div>
+      <div class="arch-row">
+        <div class="arch-box green">📱 LINE 使用者</div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box gray">LINE 官方伺服器</div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box gray">Webhook POST<br><small style="font-weight:400">/callback</small></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box gray">FastAPI 伺服器<br><small style="font-weight:400">localhost:8000</small></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box blue">🤖 Gemini API<br><small style="font-weight:400">gemini-3.8-flash</small></div>
+      </div>
+      <div style="color:var(--muted); font-size:12px; margin-top:12px;">ngrok 負責將本機端口對外暴露為 HTTPS 公開網址</div>
+    </div>
+
+    <!-- 2. 開發歷程 -->
+    <h2><span class="icon">🗺️</span> 二、開發歷程時間軸</h2>
+    <ul class="timeline">
+      <li>
+        <div class="tl-dot done">1</div>
+        <div class="tl-content">
+          <h4>需求確認與技術選型</h4>
+          <p>確定以 Python 3.13 + FastAPI + LINE SDK v3 + google-genai SDK 作為技術棧，並規劃完整目錄結構。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">2</div>
+        <div class="tl-content">
+          <h4>程式碼撰寫與套件安裝</h4>
+          <p>建立 main.py（Webhook 伺服器）、gemini_service.py（AI 模組）、.env（金鑰設定）等核心檔案，並自動安裝所有依賴套件。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">3</div>
+        <div class="tl-content">
+          <h4>LINE Developers 頻道建立</h4>
+          <p>使用者原先建立的是「LINE MINI App」頻道（不支援 Messaging API），後依指引重新建立正確的「Messaging API」頻道。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">4</div>
+        <div class="tl-content">
+          <h4>金鑰配置</h4>
+          <p>成功取得並填入 LINE Channel Secret、LINE Channel Access Token、Google Gemini API Key，三組金鑰全數就位。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">5</div>
+        <div class="tl-content">
+          <h4>ngrok 穿透設定</h4>
+          <p>完成 ngrok 安裝、帳號註冊、AuthToken 配置，成功取得 HTTPS 公開網址並設定至 LINE Webhook URL。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">6</div>
+        <div class="tl-content">
+          <h4>模型名稱除錯與修正</h4>
+          <p>解決 Gemini 模型名稱版本過時問題，最終確認使用 gemini-3.8-flash 作為主模型、gemini-3.5-flash-lite 作為備援模型。</p>
+        </div>
+      </li>
+      <li>
+        <div class="tl-dot done">7</div>
+        <div class="tl-content">
+          <h4>🎉 成功上線！</h4>
+          <p>LINE Bot 成功串接 Google Gemini，使用者在 LINE 傳送訊息後機器人正確回覆 AI 生成內容。</p>
+        </div>
+      </li>
+    </ul>
+
+    <!-- 3. 對話紀錄摘要 -->
+    <h2><span class="icon">💬</span> 三、關鍵對話摘要</h2>
+    <div class="chat-section">
+
+      <div class="chat-bubble user">
+        <div class="avatar user">👤</div>
+        <div class="bubble user">
+          <div class="bubble-label">使用者</div>
+          我想要一個 LINE bot，幫我串 Gemini
+        </div>
+      </div>
+
+      <div class="chat-bubble">
+        <div class="avatar ai">🤖</div>
+        <div class="bubble ai">
+          <div class="bubble-label">AI 助理</div>
+          規劃完整架構：Python FastAPI + LINE SDK v3 + Google GenAI SDK。建立專案目錄、requirements.txt、.env 設定檔，並產出專案計畫書（HTML + Word + Markdown 三種格式）。
+        </div>
+      </div>
+
+      <div class="chat-bubble user">
+        <div class="avatar user">👤</div>
+        <div class="bubble user">
+          <div class="bubble-label">使用者</div>
+          找不到 Channel Access Token（截圖顯示建立的是 LINE MINI App 頻道）
+        </div>
+      </div>
+
+      <div class="chat-bubble">
+        <div class="avatar ai">🤖</div>
+        <div class="bubble ai">
+          <div class="bubble-label">AI 助理</div>
+          發現問題：需建立「Messaging API」類型的頻道，而非「LINE MINI App」。引導使用者重新建立正確頻道。
+        </div>
+      </div>
+
+      <div class="chat-bubble user">
+        <div class="avatar user">👤</div>
+        <div class="bubble user">
+          <div class="bubble-label">使用者</div>
+          ngrok 無法執行（ngrok.exe 不在資料夾中）→ 安裝後出現 authentication failed
+        </div>
+      </div>
+
+      <div class="chat-bubble">
+        <div class="avatar ai">🤖</div>
+        <div class="bubble ai">
+          <div class="bubble-label">AI 助理</div>
+          引導使用者至 ngrok.com 申請帳號取得 AuthToken，執行 ngrok config add-authtoken 完成認證，成功取得公開 HTTPS 網址。
+        </div>
+      </div>
+
+      <div class="chat-bubble user">
+        <div class="avatar user">👤</div>
+        <div class="bubble user">
+          <div class="bubble-label">使用者</div>
+          錯誤：gemini-2.5-flash 已停用、gemini-2.0-flash-lite 也不可用
+        </div>
+      </div>
+
+      <div class="chat-bubble">
+        <div class="avatar ai">🤖</div>
+        <div class="bubble ai">
+          <div class="bubble-label">AI 助理</div>
+          根據 API 錯誤訊息指引，更新主模型為 gemini-3.8-flash、備援模型為 gemini-3.5-flash-lite。
+        </div>
+      </div>
+
+      <div class="chat-bubble user">
+        <div class="avatar user">👤</div>
+        <div class="bubble user">
+          <div class="bubble-label">使用者</div>
+          🎉 可以了！
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 4. 問題與解決方案 -->
+    <h2><span class="icon">🔧</span> 四、遭遇問題與解決方案</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:30%">問題</th>
+          <th style="width:45%">解決方案</th>
+          <th style="width:12%">狀態</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>建立了 LINE MINI App 頻道，找不到 Messaging API 功能</td>
+          <td>重新建立「Messaging API」類型的頻道</td>
+          <td><span class="tag solved">已解決</span></td>
+        </tr>
+        <tr>
+          <td>ngrok 執行錯誤（找不到指令）</td>
+          <td>確認 ngrok.exe 已放置於正確資料夾</td>
+          <td><span class="tag solved">已解決</span></td>
+        </tr>
+        <tr>
+          <td>ngrok authentication failed</td>
+          <td>至 ngrok.com 申請帳號並設定 AuthToken</td>
+          <td><span class="tag solved">已解決</span></td>
+        </tr>
+        <tr>
+          <td>Gemini 模型 gemini-2.5-flash 404 錯誤</td>
+          <td>依 API 錯誤指引更新至 gemini-3.8-flash</td>
+          <td><span class="tag solved">已解決</span></td>
+        </tr>
+        <tr>
+          <td>Fallback 模型 gemini-2.0-flash-lite 也 404</td>
+          <td>更新 fallback 至 gemini-3.5-flash-lite</td>
+          <td><span class="tag solved">已解決</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 5. 成果檔案清單 -->
+    <h2><span class="icon">📁</span> 五、產出檔案清單</h2>
+    <div class="file-grid">
+      <div class="file-card">
+        <div class="fname">main.py</div>
+        <p>FastAPI 主程式與 LINE Webhook 進入點。包含簽章驗證、訊息分發、Reply API 回覆與長文字分割邏輯。</p>
+      </div>
+      <div class="file-card">
+        <div class="fname">gemini_service.py</div>
+        <p>Gemini API 呼叫封裝模組。支援多輪對話記憶（Sliding Window）、自動降級備援模型與 /reset 清除指令。</p>
+      </div>
+      <div class="file-card">
+        <div class="fname">.env</div>
+        <p>環境變數設定檔。儲存 LINE Channel Secret、Access Token 與 Gemini API Key，不進入版本控制。</p>
+      </div>
+      <div class="file-card">
+        <div class="fname">requirements.txt</div>
+        <p>專案依賴清單：fastapi, uvicorn, line-bot-sdk, google-genai, python-dotenv 等共 30+ 套件。</p>
+      </div>
+      <div class="file-card">
+        <div class="fname">README.md</div>
+        <p>快速啟動指南：含金鑰取得流程、ngrok 設定步驟與 LINE Webhook 配置說明。</p>
+      </div>
+      <div class="file-card">
+        <div class="fname">LINE_BOT_GEMINI_專案計畫書.html</div>
+        <p>可直接用瀏覽器開啟的視覺化計畫書，含架構圖、技術規格表，右下角附列印/PDF按鈕。</p>
+      </div>
+    </div>
+
+    <!-- 6. 最終設定 -->
+    <h2><span class="icon">⚙️</span> 六、最終環境設定</h2>
+    <div class="code-block">
+<span class="comment"># .env 最終設定（實際金鑰已隱碼處理）</span>
+<span class="key">LINE_CHANNEL_SECRET</span>=<span class="val">4a11c6bc63be9****461267</span>
+<span class="key">LINE_CHANNEL_ACCESS_TOKEN</span>=<span class="val">XmliO9hUw90R1Y****ilFU=</span>
+<span class="key">GEMINI_API_KEY</span>=<span class="val">AQ.Ab8RN6LAI80****ZKX9w</span>
+<span class="key">GEMINI_MODEL</span>=<span class="val">gemini-3.8-flash</span>
+<span class="key">PORT</span>=<span class="val">8000</span>
+    </div>
+
+    <h3>每次重開電腦後需執行的指令</h3>
+    <div class="code-block">
+<span class="comment"># 視窗一：啟動 FastAPI 伺服器</span>
+python main.py
+
+<span class="comment"># 視窗二：啟動 ngrok 穿透（取得新網址後更新 LINE Webhook URL）</span>
+.\ngrok http 8000
+    </div>
+
+    <!-- 成功結語 -->
+    <div class="success-box">
+      <h3>✅ 專案成功完成！</h3>
+      <p>LINE Bot 已成功串接 Google Gemini AI，具備即時問答、多輪對話記憶與自動容錯降級能力。使用者在 LINE 聊天室中傳送任意訊息，機器人即可即時回覆 Gemini AI 生成的內容。</p>
+    </div>
+
+    <!-- 7. 未來擴充 -->
+    <h2><span class="icon">🚀</span> 七、未來可擴充功能</h2>
+    <table>
+      <thead><tr><th>功能</th><th>說明</th><th>難度</th></tr></thead>
+      <tbody>
+        <tr><td>☁️ 雲端部署</td><td>部署至 Render / Zeabur，24 小時在線不需自己電腦</td><td><span class="tag tip">簡單</span></td></tr>
+        <tr><td>📸 圖片辨識</td><td>使用者傳送照片，Gemini 分析圖片內容並回覆</td><td><span class="tag tip">中等</span></td></tr>
+        <tr><td>💾 記憶持久化</td><td>將對話記錄存至資料庫，重啟後記憶不消失</td><td><span class="tag tip">中等</span></td></tr>
+        <tr><td>📚 私有知識庫</td><td>匯入 PDF/文件，機器人能回答專屬業務問題</td><td><span class="tag tip">進階</span></td></tr>
+      </tbody>
+    </table>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div><strong>LINE Bot × Google Gemini 專案報告</strong> ｜ 2026 年 10 月 5 日完成</div>
+    <div>由 Antigravity AI 輔助開發 · Python 3.13 · FastAPI · LINE SDK v3</div>
+  </div>
+
+</div>
+
+<button class="print-btn" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
+
+</body>
+</html>

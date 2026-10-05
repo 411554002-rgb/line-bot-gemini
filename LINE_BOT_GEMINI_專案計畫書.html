@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINE 智慧對話機器人整合 Google Gemini 專案計畫書</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+  </script>
+  <style>
+    :root {
+      --primary: #06C755; /* LINE Green */
+      --primary-dark: #05a346;
+      --secondary: #1a73e8; /* Google Blue */
+      --text: #202124;
+      --text-muted: #5f6368;
+      --bg-gray: #f8f9fa;
+      --border: #dadce0;
+      --card-bg: #ffffff;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft JhengHei", sans-serif;
+      line-height: 1.7;
+      color: var(--text);
+      background-color: var(--bg-gray);
+      padding: 40px 20px;
+    }
+    
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      padding: 50px 60px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border);
+    }
+    
+    .header {
+      border-bottom: 3px solid var(--primary);
+      padding-bottom: 25px;
+      margin-bottom: 35px;
+    }
+    
+    .badge {
+      display: inline-block;
+      background-color: #e6f4ea;
+      color: #137333;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .badge-blue {
+      background-color: #e8f0fe;
+      color: var(--secondary);
+    }
+    
+    h1 {
+      font-size: 28px;
+      color: #1a1a1a;
+      margin-bottom: 10px;
+    }
+    
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+    
+    h2 {
+      font-size: 20px;
+      color: #1e293b;
+      margin-top: 40px;
+      margin-bottom: 18px;
+      padding-left: 12px;
+      border-left: 4px solid var(--primary);
+      display: flex;
+      align-items: center;
+    }
+    
+    h3 {
+      font-size: 16px;
+      color: #334155;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+    
+    p {
+      margin-bottom: 14px;
+      color: #374151;
+    }
+    
+    ul, ol {
+      margin-left: 24px;
+      margin-bottom: 16px;
+      color: #374151;
+    }
+    
+    li {
+      margin-bottom: 6px;
+    }
+    
+    .card {
+      background: var(--bg-gray);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 18px 0;
+    }
+    
+    .diagram-box {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 24px;
+      margin: 20px 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+    
+    th, td {
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      text-align: left;
+    }
+    
+    th {
+      background-color: #f1f5f9;
+      font-weight: 600;
+      color: #334155;
+    }
+    
+    tr:nth-child(even) {
+      background-color: #fafafa;
+    }
+    
+    .tag-free {
+      background: #dcfce7;
+      color: #15803d;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    
+    .print-btn {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(6, 199, 85, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .print-btn:hover {
+      background: var(--primary-dark);
+      transform: translateY(-2px);
+    }
+
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .container {
+        border: none;
+        box-shadow: none;
+        padding: 0;
+      }
+      .print-btn {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <span class="badge">技術規劃與架構書</span>
+    <span class="badge badge-blue">Google Gemini AI</span>
+    <h1>LINE 智慧對話機器人整合 Google Gemini 專案計畫書</h1>
+    <div class="subtitle">專案日期：2026 年 10 月 ｜ 文件版本：v1.0 ｜ 檔案格式：網頁視覺版 (支援雙擊開啟與列印 PDF)</div>
+  </div>
+
+  <h2>摘要 (Executive Summary)</h2>
+  <p>
+    本專案旨在建置一套高效能、高擴展性之 <strong>LINE 官方帳號（LINE Official Account）智慧對話助理</strong>。透過整合最新版 <strong>Google Gemini 大型語言模型（LLM）</strong>，賦予機器人自然語言理解、邏輯推論、多輪對話記憶與長篇資訊彙整能力。使用者無需額外安裝專屬 App，即可在日常最熟悉的 LINE 通訊軟體中，享受全天候即時的 AI 智慧服務。
+  </p>
+
+  <h2>一、 專案背景與目標 (Project Background & Objectives)</h2>
+  <div class="card">
+    <h3>1.1 現況痛點</h3>
+    <ul>
+      <li><strong>傳統 LINE 機器人僵硬</strong>：大部分基於關鍵字比對或固定問答樹（FAQ Tree），無法理解使用者自然的語意表達與上下文關聯。</li>
+      <li><strong>維護成本高昂</strong>：關鍵字規則需人工持續擴充與微調，面對生僻問答容易陷入「我不懂您的意思」的窘境。</li>
+      <li><strong>跨平台使用門檻</strong>：雖然市面上已有網頁版 AI 工具，但非技術使用者在切換網頁或登入驗證時仍有使用障礙。</li>
+    </ul>
+  </div>
+
+  <h3>1.2 專案預期目標</h3>
+  <ol>
+    <li><strong>即時語意理解</strong>：利用 Gemini 先進模型，精確辨識使用者意圖並給予高質量解答。</li>
+    <li><strong>上下文多輪記憶</strong>：具備短期對話記憶能力，能連貫上下文進行追問與深入討論。</li>
+    <li><strong>無縫整合體驗</strong>：直接嵌入 LINE 生態圈，支援群組與個人一對一聊天。</li>
+    <li><strong>低延遲與高彈性</strong>：採用非同步（Asynchronous）後端架構，確保 Webhook 快速回應，避免 LINE 逾時重發。</li>
+  </ol>
+
+  <h2>二、 系統架構設計 (System Architecture)</h2>
+  
+  <h3>2.1 系統總體拓撲圖 (Topology Diagram)</h3>
+  <div class="diagram-box">
+    <pre class="mermaid">
+flowchart TD
+    subgraph Client["客戶端 (Client Layer)"]
+        User["LINE 使用者 (iOS / Android / Desktop)"]
+    end
+
+    subgraph LinePlatform["LINE 官方平台 (LINE Platform)"]
+        LineGateway["LINE Gateway 伺服器"]
+        LineAPI["LINE Messaging API"]
+    end
+
+    subgraph CoreBackend["核心後端 (FastAPI Application)"]
+        Webhook["/callback Webhook 進入點"]
+        SignatureAuth["簽章驗證模組 (HMAC-SHA256)"]
+        Dispatcher["訊息分發器 (Event Dispatcher)"]
+        SessionMgr["Session / 對話記憶快取模組"]
+        GeminiClient["Gemini API 介接客戶端"]
+        MessageSplitter["訊息分割與格式化模組"]
+    end
+
+    subgraph GoogleCloud["Google Cloud / Google AI"]
+        GeminiModel["Google Gemini 2.5 / 1.5 Flash / Pro"]
+    end
+
+    User -->|"傳送文字訊息"| LineGateway
+    LineGateway -->|"Webhook POST (含簽章)"| Webhook
+    Webhook --> SignatureAuth
+    SignatureAuth -->|"驗證合法"| Dispatcher
+    Dispatcher -->|"讀取/更新歷史紀錄"| SessionMgr
+    Dispatcher -->|"組裝對話 Prompt"| GeminiClient
+    GeminiClient -->|"呼叫 LLM 介面"| GeminiModel
+    GeminiModel -->|"回傳生成內容"| GeminiClient
+    GeminiClient --> MessageSplitter
+    MessageSplitter -->|"發送 ReplyMessage"| LineAPI
+    LineAPI -->|"顯示回應"| User
+    </pre>
+  </div>
+
+  <h3>2.2 訊息處理時序圖 (Sequence Diagram)</h3>
+  <div class="diagram-box">
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as 使用者
+    participant LINE as LINE 官方伺服器
+    participant Server as FastAPI Webhook 伺服器
+    participant Memory as 對話記憶模組
+    participant Gemini as Google Gemini API
+
+    User->>LINE: 發送訊息 ("請幫我規劃三天兩夜行程")
+    LINE->>Server: HTTP POST /callback (帶有 X-Line-Signature)
+    Server->>Server: 驗證 HMAC-SHA256 簽章
+    Server->>Memory: 查詢該使用者歷史上下文
+    Memory-->>Server: 回傳最近歷史對話 (Chat History)
+    Server->>Gemini: generate_content(模型, 歷史 + 當前問題)
+    Gemini-->>Server: 回傳生成旅遊行程規劃文字
+    Server->>Memory: 更新對話歷史 (加入使用者問題與 AI 回答)
+    Server->>Server: 檢查字數長度 (若 >4800 字則進行智慧分段)
+    Server->>LINE: MessagingApi.reply_message(reply_token, 格式化訊息)
+    LINE-->>User: 於 LINE 聊天室中渲染 AI 回覆內容
+    </pre>
+  </div>
+
+  <h2>三、 技術規格評估 (Technical Stack Evaluation)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>元件層級</th>
+        <th>選用技術</th>
+        <th>選用評估與效益</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>後端語言</strong></td>
+        <td>Python 3.13</td>
+        <td>生態系成熟，具備最強大的 AI/LLM SDK 官方原生支援。</td>
+      </tr>
+      <tr>
+        <td><strong>Web 框架</strong></td>
+        <td>FastAPI + Uvicorn</td>
+        <td>非同步 ASGI 框架，單機並發效能卓越，開銷極低。</td>
+      </tr>
+      <tr>
+        <td><strong>通訊協定 SDK</strong></td>
+        <td>LINE Messaging API SDK v3</td>
+        <td>LINE 官方最新版 Python SDK，具備完整簽章校驗與型別保障。</td>
+      </tr>
+      <tr>
+        <td><strong>AI 核心引擎</strong></td>
+        <td>Google GenAI SDK (google-genai)</td>
+        <td>Google 官方統一版 SDK，支援 Gemini 2.5/1.5 系列，百萬 Token 上下文與秒級回應。</td>
+      </tr>
+      <tr>
+        <td><strong>環境配置</strong></td>
+        <td>python-dotenv</td>
+        <td>遵循 12-Factor App 原則，機敏金鑰與程式碼嚴格隔離。</td>
+      </tr>
+      <tr>
+        <td><strong>通道測試</strong></td>
+        <td>ngrok / localtunnel</td>
+        <td>快速將本機服務映射為合法的 HTTPS 公開端點供 LINE 測試。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>四、 核心功能規格 (Functional Specifications)</h2>
+  <ul>
+    <li><strong>全領域智慧問答</strong>：程式輔助、公文與文案擬稿、語言翻譯、生活諮詢與邏輯推理。</li>
+    <li><strong>多輪對話記憶（Sliding Window）</strong>：維護最近 10~12 次上下文，對話不斷層；輸入 <code>/reset</code> 可隨時清空記憶。</li>
+    <li><strong>超長文字防護</strong>：針對 LINE 單則 5,000 字上限，內建智慧分割器（每 4,800 字拆分一則，最多發送 5 則）。</li>
+    <li><strong>容錯降級機制（Fallback）</strong>：主模型若遇瞬時配額異常，自動降級調用 <code>gemini-1.5-flash</code>，確保服務不中斷。</li>
+  </ul>
+
+  <h2>五、 資安與維運成本 (Security & Operations)</h2>
+  <div class="card">
+    <h3>資安規範</h3>
+    <p>1. <strong>全鏈路 HTTPS</strong>：強制加密傳輸，防止中間人竊聽。<br>
+       2. <strong>HMAC-SHA256 簽章驗證</strong>：阻擋非 LINE 官方之惡意仿冒偽造請求。<br>
+       3. <strong>金鑰隔離</strong>：Token 與 API Key 僅留存於 <code>.env</code>，不提交版控。</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>服務項目</th>
+        <th>方案 / 額度</th>
+        <th>預估初期花費</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Google Gemini API</td>
+        <td>Free Tier (每日免費額度充裕)</td>
+        <td><span class="tag-free">$0 元 (免費)</span></td>
+      </tr>
+      <tr>
+        <td>LINE Official Account</td>
+        <td>輕量方案（被動回覆不計則數，完全免費）</td>
+        <td><span class="tag-free">$0 元 (免費)</span></td>
+      </tr>
+      <tr>
+        <td>本地伺服器測試</td>
+        <td>本機運行 + ngrok 免費版</td>
+        <td><span class="tag-free">$0 元 (免費)</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>六、 未來進階擴充願景 (Future Enhancements)</h2>
+  <ol>
+    <li><strong>多模態圖像辨識</strong>：支援使用者傳送照片/發票，由 Gemini 辨識內容並提取數據。</li>
+    <li><strong>企業私有知識庫 (RAG)</strong>：結合向量資料庫，匯入內部規章與 PDF，打造專屬業務客服。</li>
+    <li><strong>資料庫持久化</strong>：將對話歷程儲存至 SQLite/PostgreSQL，重啟服務記憶依然保留。</li>
+  </ol>
+</div>
+
+<button class="print-btn" onclick="window.print()">
+  🖨️ 列印 / 另存為 PDF
+</button>
+
+</body>
+</html>
