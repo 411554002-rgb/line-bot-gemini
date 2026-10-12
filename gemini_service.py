@@ -1,173 +1,307 @@
 import os
 import logging
 from typing import Dict, List, Optional
+import requests
+from openai import OpenAI
 from google import genai
 from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# 預設 System Instruction：設定繁體中文助理人設、風格與時間認知
-DEFAULT_SYSTEM_INSTRUCTION = """你是運作於 LINE 上的智慧 AI 個人助理，由 Google Gemini 最新模型驅動。
+# 預設 System Instruction：繁體中文在地化引導
+DEFAULT_SYSTEM_INSTRUCTION = """你是運作於 LINE 上的智慧 AI 個人助理。
 你的任務是提供準確、結構清晰、親切友善的回答。
 
 回答原則：
 1. 請一律使用繁體中文（台灣習慣用語）回答。
 2. 回答語氣保持親切、專業、有耐心。
-3. 若使用者詢問時間，請注意當前基準年份為 2026 年，若遇到需要最新即時動態或時事，請明確告知並盡力依據已有知識提供分析與建議。
+3. 若使用者詢問時間，請注意當前基準年份為 2026 年。
 4. 排版請善用條列點與粗體，讓在手機 LINE 螢幕上閱讀更加舒適。
 5. 若使用者提出問題過於簡略，可主動給予具體建議與追問引導。
 """
 
-class GeminiService:
-    def __init__(self, api_key: str = None, model: str = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
-        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-        self.fallback_model = "gemini-3.5-flash-lite"
-        self.client: Optional[genai.Client] = None
-        
-        # 使用者對話歷史紀錄 (Key: user_id, Value: list of contents)
-        self.user_sessions: Dict[str, List[dict]] = {}
-        # 使用者自訂 System Instruction / 人設設定
-        self.user_custom_instructions: Dict[str, str] = {}
-        
-        if self.api_key:
-            self._init_client()
-        else:
-            logger.warning("GEMINI_API_KEY 未設定，Gemini 功能暫時無法使用。")
+class LLMService:
+    def __init__(self):
+        # 1. Google Gemini 設定
+        self.gemini_key = os.getenv("GEMINI_API_KEY", "")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        self.gemini_client: Optional[genai.Client] = None
+        if self.gemini_key:
+            try:
+                self.gemini_client = genai.Client(api_key=self.gemini_key)
+                logger.info("Gemini 客戶端初始化成功 (模型: %s)", self.gemini_model)
+            except Exception as e:
+                logger.error("Gemini 初始化失敗: %s", e)
 
-    def _init_client(self):
+        # 2. OpenRouter / OpenCode 雲端開源模型設定 (OpenAI 相容協議)
+        self.openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+        self.openrouter_model = os.getenv("OPENROUTER_MODEL", "liquid/lfm-2.5-2.6b:free")
+        self.openrouter_client: Optional[OpenAI] = None
+        if self.openrouter_key:
+            try:
+                self.openrouter_client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self.openrouter_key,
+                )
+                logger.info("OpenRouter 客戶端初始化成功 (模型: %s)", self.openrouter_model)
+            except Exception as e:
+                logger.error("OpenRouter 初始化失敗: %s", e)
+
+        # 3. 本地 Ollama 模型設定
+        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+        self.ollama_client = OpenAI(
+            base_url=f"{self.ollama_base_url}/v1",
+            api_key="ollama", # 本地無需 key
+        )
+
+        # 使用者設定快取
+        # user_modes: 'auto', 'gemini', 'openrouter', 'local' (預設 auto)
+        self.user_modes: Dict[str, str] = {}
+        self.user_sessions: Dict[str, List[dict]] = {}
+        self.user_custom_instructions: Dict[str, str] = {}
+
+    def is_ollama_alive(self) -> bool:
+        """檢查本地 Ollama 服務是否正在運行"""
         try:
-            self.client = genai.Client(api_key=self.api_key)
-            logger.info("成功初始化 google-genai Client，主模型: %s，備援: %s", self.model, self.fallback_model)
-        except Exception as e:
-            logger.error("初始化 Gemini Client 失敗: %s", e)
-            self.client = None
+            r = requests.get(f"{self.ollama_base_url}/api/tags", timeout=1.0)
+            return r.status_code == 200
+        except Exception:
+            return False
 
     def reset_chat(self, user_id: str) -> str:
-        """重置指定使用者的對話紀錄"""
-        had_history = user_id in self.user_sessions
-        if had_history:
+        """重置指定使用者的對話記憶"""
+        if user_id in self.user_sessions:
             del self.user_sessions[user_id]
-        return "🧹 對話記憶已成功重置！您可以開啟新的話題了。"
+        return "🧹 對話記憶已成功清空！您可以開啟新的話題了。"
+
+    def set_mode(self, user_id: str, mode: str) -> str:
+        """切換模型引擎模式"""
+        m = mode.lower().strip()
+        if m in ["auto", "自動"]:
+            self.user_modes[user_id] = "auto"
+            return "⚙️ 已切換為【自動三合一智慧備援模式】\n優先順序：Gemini ➔ OpenRouter 免費模型 ➔ 本地 Ollama 模型。"
+        elif m in ["gemini", "谷歌"]:
+            self.user_modes[user_id] = "gemini"
+            return f"🔵 已切換為【Google Gemini 雲端模型】 (模型: {self.gemini_model})"
+        elif m in ["openrouter", "open", "opencode", "雲端開源"]:
+            self.user_modes[user_id] = "openrouter"
+            return f"🌐 已切換為【OpenRouter / OpenCode 免費雲端模型】 (模型: {self.openrouter_model})"
+        elif m in ["local", "ollama", "本地"]:
+            self.user_modes[user_id] = "local"
+            alive = self.is_ollama_alive()
+            status_text = "🟢 本地 Ollama 連線正常" if alive else "⚠️ 提醒：目前尚未偵測到本地 Ollama 服務 (http://localhost:11434)"
+            return f"💻 已切換為【本機開源模型 Ollama】 (模型: {self.ollama_model})\n{status_text}"
+        else:
+            return (
+                "💡 格式說明：請輸入 `/model <選項>`\n"
+                "• `/model auto` ：自動備援（推薦）\n"
+                "• `/model gemini` ：Google Gemini\n"
+                "• `/model open` ：OpenRouter 免費開源模型\n"
+                "• `/model local` ：本機 Ollama 開源模型"
+            )
 
     def set_system_prompt(self, user_id: str, instruction: str) -> str:
         """設定自訂人設"""
         self.user_custom_instructions[user_id] = instruction
-        # 重設歷史以套用新人設
         if user_id in self.user_sessions:
             del self.user_sessions[user_id]
         return f"🎭 已為您切換全新助理人設：\n「{instruction}」\n對話記憶已同步重設，歡迎開始交談！"
 
     def get_help_message(self) -> str:
-        """取得快捷指令幫助清單"""
+        """取得快捷指令清單"""
         return (
-            "🤖 【LINE Gemini 智慧助理 指令清單】\n\n"
-            "📌 基本操作：\n"
-            "• 直接輸入任何文字或問題即可交談\n"
-            "• 支援多輪上下文記憶，可延續上一句話題\n\n"
-            "⚡ 快捷功能指令：\n"
-            "• /help 或 「說明」：顯示此指令選單\n"
-            "• /reset 或 「重設對話」：清空記憶、開啟新話題\n"
-            "• /role <設定>：自訂專屬人設風格（例如：/role 你是熱血健身教練）\n"
-            "• /status 或 「狀態」：查看當前連線狀態與模型版本\n\n"
-            "💡 提示：每次點擊下方快捷按鈕也能一鍵操作喔！"
+            "🤖 【LINE 多核心 AI 助理 指令指南】\n\n"
+            "⚡ 核心切換指令：\n"
+            "• /model auto ：自動備援（推薦）\n"
+            "• /model gemini ：使用 Google Gemini\n"
+            "• /model open ：使用 OpenRouter 免費雲端模型\n"
+            "• /model local ：使用本機離線 Ollama 模型\n\n"
+            "📌 常用功能指令：\n"
+            "• /help ：顯示此說明選單\n"
+            "• /status ：查詢當前核心狀態與連線報告\n"
+            "• /reset ：清空對話上下文記憶\n"
+            "• /role <人設> ：例如「/role 你是一位幽默英文家教」\n\n"
+            "💡 提示：點擊下方快捷按鈕也能一鍵操作！"
         )
 
-    def get_status_message(self) -> str:
-        """取得系統狀態"""
+    def get_status_message(self, user_id: str) -> str:
+        """取得系統即時狀態報告"""
+        current_mode = self.user_modes.get(user_id, "auto")
+        ollama_ok = self.is_ollama_alive()
+        gemini_ok = bool(self.gemini_client)
+        openrouter_ok = bool(self.openrouter_client)
+
         return (
-            "📊 【系統連線狀態報告】\n\n"
-            f"• 核心架構：FastAPI + LINE Messaging API v3\n"
-            f"• AI 核心引擎：Google GenAI SDK\n"
-            f"• 主要模型：{self.model}\n"
-            f"• 備援模型：{self.fallback_model}\n"
-            "• 上下文記憶窗口：最多 12 輪滑動視窗\n"
-            "• 狀態：🟢 連線正常，運行中"
+            "📊 【多核心 AI 連線狀態報告】\n\n"
+            f"• 目前選擇模式：【{current_mode.upper()}】\n\n"
+            "引擎連線狀況：\n"
+            f"1. 🔵 Google Gemini: {'🟢 可用 (' + self.gemini_model + ')' if gemini_ok else '⚪ 未配置'}\n"
+            f"2. 🌐 OpenRouter (雲端免費): {'🟢 可用 (' + self.openrouter_model + ')' if openrouter_ok else '⚪ 未配置 Key'}\n"
+            f"3. 💻 本地 Ollama (離線開源): {'🟢 運行中 (' + self.ollama_model + ')' if ollama_ok else '🔴 離線 (未開啟服務)'}\n\n"
+            "💡 當處於 AUTO 模式時，系統會在遇到斷線或限流時自動無縫轉移！"
         )
+
+    # 內部調用 1: Gemini
+    def _call_gemini(self, user_id: str, prompt: str, system_instruct: str, history: list) -> str:
+        if not self.gemini_client:
+            raise RuntimeError("Gemini 客戶端未初始化或 Key 未設定")
+        
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruct,
+            temperature=0.7,
+        )
+        contents_payload = list(history)
+        current_msg = {"role": "user", "parts": [{"text": prompt}]}
+        contents_payload.append(current_msg)
+
+        res = self.gemini_client.models.generate_content(
+            model=self.gemini_model,
+            contents=contents_payload,
+            config=config,
+        )
+        return (res.text or "").strip()
+
+    # 內部調用 2: OpenRouter (雲端免費開源模型)
+    def _call_openrouter(self, user_id: str, prompt: str, system_instruct: str, history: list) -> str:
+        if not self.openrouter_client:
+            raise RuntimeError("OpenRouter Key 未設定")
+        
+        messages = [{"role": "system", "content": system_instruct}]
+        # 將歷史轉換為 OpenAI 格式
+        for h in history:
+            role = "user" if h.get("role") == "user" else "assistant"
+            txt = ""
+            for p in h.get("parts", []):
+                txt += p.get("text", "")
+            if txt:
+                messages.append({"role": role, "content": txt})
+        messages.append({"role": "user", "content": prompt})
+
+        res = self.openrouter_client.chat.completions.create(
+            model=self.openrouter_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+        )
+        return res.choices[0].message.content.strip()
+
+    # 內部調用 3: Ollama (本機開源模型)
+    def _call_ollama(self, user_id: str, prompt: str, system_instruct: str, history: list) -> str:
+        if not self.is_ollama_alive():
+            raise RuntimeError("本地 Ollama 服務未啟動 (請啟動 Ollama 應用程式)")
+
+        messages = [{"role": "system", "content": system_instruct}]
+        for h in history:
+            role = "user" if h.get("role") == "user" else "assistant"
+            txt = "".join([p.get("text", "") for p in h.get("parts", [])])
+            if txt:
+                messages.append({"role": role, "content": txt})
+        messages.append({"role": "user", "content": prompt})
+
+        res = self.ollama_client.chat.completions.create(
+            model=self.ollama_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1500,
+        )
+        return res.choices[0].message.content.strip()
 
     def generate_reply(self, user_id: str, prompt: str) -> str:
-        """
-        向 Gemini 發送訊息並取得回覆
-        """
-        if not self.api_key:
-            return "⚠️ 系統提示：目前尚未設定 GEMINI_API_KEY，請在 .env 檔案中配置金鑰。"
-
-        if not self.client:
-            self._init_client()
-            if not self.client:
-                return "⚠️ 系統提示：Gemini 客戶端初始化失敗，請檢查 API Key 或網路連線。"
-
+        """核心對話處理入口"""
         cleaned = prompt.strip()
         cleaned_lower = cleaned.lower()
 
-        # 指令 1: 說明 / Help
+        # 指令分發
         if cleaned_lower in ["/help", "help", "說明", "功能說明", "指令"]:
             return self.get_help_message()
 
-        # 指令 2: 重設對話
         if cleaned_lower in ["/reset", "重設對話", "清除記憶", "清除對話", "重設"]:
             return self.reset_chat(user_id)
 
-        # 指令 3: 查看狀態
         if cleaned_lower in ["/status", "status", "狀態", "系統狀態"]:
-            return self.get_status_message()
+            return self.get_status_message(user_id)
 
-        # 指令 4: 切換人設 /role
+        if cleaned.startswith("/model") or cleaned.startswith("/模型"):
+            parts = cleaned.split(" ", 1)
+            target = parts[1].strip() if len(parts) > 1 else ""
+            return self.set_mode(user_id, target)
+
         if cleaned.startswith("/role ") or cleaned.startswith("/人設 "):
             parts = cleaned.split(" ", 1)
             if len(parts) > 1 and parts[1].strip():
                 return self.set_system_prompt(user_id, parts[1].strip())
             else:
-                return "💡 格式說明：請輸入 `/role 角色說明`，例如：`/role 你是一位專業的繁體中文英文家教`"
+                return "💡 格式說明：請輸入 `/role 角色說明`，例如：`/role 你是一位專業的日語口說教練`"
 
-        try:
-            # 取得該使用者目前的人設設定
-            sys_instruct = self.user_custom_instructions.get(user_id, DEFAULT_SYSTEM_INSTRUCTION)
-            config = types.GenerateContentConfig(
-                system_instruction=sys_instruct,
-                temperature=0.7,
-            )
+        # 準備上下文與 Prompt
+        sys_instruct = self.user_custom_instructions.get(user_id, DEFAULT_SYSTEM_INSTRUCTION)
+        history = self.user_sessions.get(user_id, [])
+        mode = self.user_modes.get(user_id, "auto")
 
-            # 取得歷史紀錄
-            history = self.user_sessions.get(user_id, [])
-            contents_payload = list(history)
+        reply_text = ""
+        engine_used = ""
 
-            # 加入當前使用者的輸入
-            current_message = {"role": "user", "parts": [{"text": cleaned}]}
-            contents_payload.append(current_message)
-
-            # 調用主模型
+        # 模式執行
+        if mode == "gemini":
             try:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=contents_payload,
-                    config=config,
-                )
-            except Exception as primary_err:
-                logger.warning("主模型 %s 調用失敗: %s，嘗試切換備援模型 %s", self.model, primary_err, self.fallback_model)
-                response = self.client.models.generate_content(
-                    model=self.fallback_model,
-                    contents=contents_payload,
-                    config=config,
-                )
+                reply_text = self._call_gemini(user_id, cleaned, sys_instruct, history)
+                engine_used = "Gemini"
+            except Exception as e:
+                return f"⚠️ 【Gemini 呼叫失敗】：{e}\n您可以輸入 `/model auto` 切換自動備援。"
 
-            reply_text = response.text or "（無文字回應）"
+        elif mode == "openrouter":
+            try:
+                reply_text = self._call_openrouter(user_id, cleaned, sys_instruct, history)
+                engine_used = f"OpenRouter ({self.openrouter_model})"
+            except Exception as e:
+                return f"⚠️ 【OpenRouter 呼叫失敗】：{e}\n請確認 .env 已填寫 OPENROUTER_API_KEY。"
 
-            # 記錄到使用者對話記憶中
-            history.append(current_message)
-            history.append({"role": "model", "parts": [{"text": reply_text}]})
+        elif mode == "local":
+            try:
+                reply_text = self._call_ollama(user_id, cleaned, sys_instruct, history)
+                engine_used = f"Ollama 本地 ({self.ollama_model})"
+            except Exception as e:
+                return f"⚠️ 【本地 Ollama 呼叫失敗】：{e}\n請確認您已在本機開啟 Ollama 並且已下載模型。"
 
-            # 保留最近 12 條訊息避免 Token 超限
-            if len(history) > 12:
-                history = history[-12:]
-            self.user_sessions[user_id] = history
+        else: # auto 自動三重容錯備援
+            # 第一順位：Gemini
+            try:
+                reply_text = self._call_gemini(user_id, cleaned, sys_instruct, history)
+                engine_used = "Gemini 3.8"
+            except Exception as gemini_err:
+                logger.warning("Auto 模式 - Gemini 失敗: %s，嘗試切換至備援引擎", gemini_err)
+                
+                # 第二順位：OpenRouter (若有設定 Key)
+                if self.openrouter_client:
+                    try:
+                        reply_text = self._call_openrouter(user_id, cleaned, sys_instruct, history)
+                        engine_used = f"OpenRouter ({self.openrouter_model})"
+                    except Exception as open_err:
+                        logger.warning("Auto 模式 - OpenRouter 失敗: %s", open_err)
 
-            return reply_text.strip()
+                # 第三順位：本地 Ollama (若運行中)
+                if not reply_text and self.is_ollama_alive():
+                    try:
+                        reply_text = self._call_ollama(user_id, cleaned, sys_instruct, history)
+                        engine_used = f"本地 Ollama ({self.ollama_model})"
+                    except Exception as local_err:
+                        logger.warning("Auto 模式 - Ollama 失敗: %s", local_err)
 
-        except Exception as e:
-            logger.error(f"Gemini 生成失敗: {e}", exc_info=True)
-            return (
-                "抱歉，目前與 Gemini 雲端連線遭遇暫時性問題。\n"
-                f"錯誤代碼/細節：{str(e)[:150]}\n"
-                "建議您可以稍後再試，或輸入 /reset 重設目前對話。"
-            )
+                if not reply_text:
+                    return (
+                        "⚠️ 抱歉，目前所有可用 AI 引擎皆暫時無法回應：\n"
+                        f"• Gemini 錯誤: {str(gemini_err)[:100]}\n\n"
+                        "建議稍後重試，或輸入 `/status` 檢查各引擎狀態。"
+                    )
+
+        # 更新對話記憶
+        current_user_part = {"role": "user", "parts": [{"text": cleaned}]}
+        model_part = {"role": "model", "parts": [{"text": reply_text}]}
+        history.append(current_user_part)
+        history.append(model_part)
+        if len(history) > 12:
+            history = history[-12:]
+        self.user_sessions[user_id] = history
+
+        return reply_text

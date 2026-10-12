@@ -28,35 +28,34 @@ from linebot.v3.webhooks import (
     FollowEvent,
 )
 
-from gemini_service import GeminiService
+from gemini_service import LLMService
 
 # 設定 Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("linebot-gemini")
+logger = logging.getLogger("linebot-multi-llm")
 
 # 讀取環境變數
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 PORT = int(os.getenv("PORT", 8000))
 
-# 初始化 LINE SDK 與 Gemini
+# 初始化 LINE SDK 與 多核心 LLM 引擎
 line_config = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 line_handler = WebhookHandler(LINE_CHANNEL_SECRET)
-gemini_service = GeminiService(api_key=GEMINI_API_KEY)
+llm_service = LLMService()
 
-app = FastAPI(title="LINE Bot with Gemini 3.8", version="2.0.0")
+app = FastAPI(title="LINE Bot with Multi-LLM (Gemini + OpenRouter + Ollama)", version="3.0.0")
 
 def get_default_quick_reply() -> QuickReply:
     """提供使用者便捷的底部快捷按鈕"""
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="重設對話", text="/reset")),
-        QuickReplyItem(action=MessageAction(label="使用說明", text="/help")),
         QuickReplyItem(action=MessageAction(label="系統狀態", text="/status")),
-        QuickReplyItem(action=MessageAction(label="自我介紹", text="請介紹你自己與能為我做的事")),
+        QuickReplyItem(action=MessageAction(label="使用說明", text="/help")),
+        QuickReplyItem(action=MessageAction(label="模型模式", text="/model auto")),
     ])
 
 def show_loading_animation(chat_id: str):
@@ -66,22 +65,24 @@ def show_loading_animation(chat_id: str):
     try:
         with ApiClient(line_config) as api_client:
             line_bot_api = MessagingApi(api_client)
-            req = ShowLoadingAnimationRequest(chat_id=chat_id, loading_seconds=10)
+            req = ShowLoadingAnimationRequest(chat_id=chat_id, loading_seconds=15)
             line_bot_api.show_loading_animation(req)
             logger.info("已為聊天室 [%s] 觸發載入動畫", chat_id)
     except Exception as e:
-        logger.debug("觸發載入動畫非關鍵異常（可能為群組或無權限）：%s", e)
+        logger.debug("觸發載入動畫非關鍵異常：%s", e)
 
 @app.get("/")
 def index():
+    ollama_alive = llm_service.is_ollama_alive()
     return {
         "status": "online",
-        "version": "2.0.0 (Enhanced with System Prompt & Quick Reply)",
-        "message": "LINE Bot Gemini Webhook Server 運行中",
+        "version": "3.0.0 (Hybrid: Gemini + OpenRouter + Local Ollama)",
+        "message": "LINE Bot Multi-LLM Webhook Server 運行中",
         "has_line_secret": bool(LINE_CHANNEL_SECRET),
         "has_line_token": bool(LINE_CHANNEL_ACCESS_TOKEN),
-        "has_gemini_key": bool(GEMINI_API_KEY),
-        "active_model": gemini_service.model,
+        "gemini_ready": bool(llm_service.gemini_client),
+        "openrouter_ready": bool(llm_service.openrouter_client),
+        "ollama_ready": ollama_alive,
     }
 
 @app.get("/health")
@@ -121,7 +122,7 @@ def reply_line_message(reply_token: str, text: str, attach_quick_reply: bool = T
         logger.error("未設定 LINE_CHANNEL_ACCESS_TOKEN，無法發送回覆。")
         return
 
-    # 分割長文字 (每段最多 4800 字)
+    # 分割長文字
     chunks = [text[i:i + 4800] for i in range(0, len(text), 4800)]
     if not chunks:
         chunks = ["（無內容）"]
@@ -129,7 +130,6 @@ def reply_line_message(reply_token: str, text: str, attach_quick_reply: bool = T
     messages = []
     total = len(chunks[:5])
     for idx, chunk in enumerate(chunks[:5]):
-        # 在最後一則訊息加上快捷回覆選單
         qr = get_default_quick_reply() if (attach_quick_reply and idx == total - 1) else None
         messages.append(TextMessage(text=chunk, quick_reply=qr))
 
@@ -154,13 +154,13 @@ def handle_follow_event(event: FollowEvent):
     logger.info("收到新用戶關注/加好友: [%s]", user_id)
     
     welcome_text = (
-        "👋 您好！我是由最新 Google Gemini 模型驅動的 LINE 智慧個人助理！\n\n"
-        "我可以協助您：\n"
-        "✨ 日常智慧諮詢與生活問題解答\n"
-        "📝 文本翻譯、文案撰寫與重點摘要\n"
-        "💻 程式撰寫、除錯與邏輯分析\n"
-        "🧠 支援上下文連續對話（記得剛才說過的話）\n\n"
-        "您隨時可以點擊下方的快捷按鈕，或輸入 `/help` 查看使用說明。現在就試著向我提出一個問題吧！"
+        "👋 您好！我是支援【雲端免費 + 本機開源】的多核心 LINE 智慧助理！\n\n"
+        "✨ 核心特色：\n"
+        "• 🔵 Google Gemini 3.8 高智能問答\n"
+        "• 🌐 OpenRouter / OpenCode 免費開源模型支援\n"
+        "• 💻 本機 Ollama 離線模型相容 (完全免外網！)\n"
+        "• ⚙️ 自動三合一備援 (斷線/限流時無縫轉移)\n\n"
+        "輸入 `/help` 可查看完整指令，點擊下方快捷按鈕可立即體驗！"
     )
     reply_line_message(reply_token=reply_token, text=welcome_text, attach_quick_reply=True)
 
@@ -176,13 +176,13 @@ def handle_text_message(event: MessageEvent):
     # 1. 觸發 LINE 等待載入動畫
     show_loading_animation(user_id)
 
-    # 2. 取得 Gemini 生成之回覆
-    ai_reply = gemini_service.generate_reply(user_id=user_id, prompt=user_text)
+    # 2. 取得多核心生成之回覆
+    ai_reply = llm_service.generate_reply(user_id=user_id, prompt=user_text)
 
     # 3. 回覆給使用者（附帶 Quick Reply 快捷按鈕）
     reply_line_message(reply_token=reply_token, text=ai_reply, attach_quick_reply=True)
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("正在啟動升級版 LINE Bot 伺服器，連接埠: %s...", PORT)
+    logger.info("正在啟動多核心 LINE Bot 伺服器，連接埠: %s...", PORT)
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)
