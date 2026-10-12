@@ -1,8 +1,11 @@
 import os
 import logging
+import base64
+import hashlib
+import hmac
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 # 載入 .env 環境變數
@@ -10,7 +13,6 @@ load_dotenv()
 
 # LINE SDK v3 模組匯入
 from linebot.v3 import WebhookHandler
-from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration,
     ApiClient,
@@ -65,7 +67,7 @@ def show_loading_animation(chat_id: str):
     try:
         with ApiClient(line_config) as api_client:
             line_bot_api = MessagingApi(api_client)
-            req = ShowLoadingAnimationRequest(chat_id=chat_id, loading_seconds=15)
+            req = ShowLoadingAnimationRequest(chat_id=chat_id, loading_seconds=60)
             line_bot_api.show_loading_animation(req)
             logger.info("已為聊天室 [%s] 觸發載入動畫", chat_id)
     except Exception as e:
@@ -89,28 +91,34 @@ def index():
 def health_check():
     return {"status": "healthy"}
 
+def process_webhook(body_text: str, signature: str):
+    """在背景處理已驗簽的 webhook，避免模型呼叫拖住 LINE 的 webhook 回應。"""
+    try:
+        line_handler.handle(body_text, signature)
+    except Exception:
+        logger.exception("背景處理 LINE Webhook 時發生異常")
+
+
 @app.post("/callback")
-async def callback(request: Request):
+async def callback(request: Request, background_tasks: BackgroundTasks):
     """
     LINE Webhook 進入點
     """
     signature = request.headers.get("X-Line-Signature", "")
     body = await request.body()
-    body_text = body.decode("utf-8")
-
     if not LINE_CHANNEL_SECRET:
         logger.error("尚未配置 LINE_CHANNEL_SECRET！")
         raise HTTPException(status_code=500, detail="LINE_CHANNEL_SECRET is not configured")
 
-    try:
-        line_handler.handle(body_text, signature)
-    except InvalidSignatureError:
+    expected_signature = base64.b64encode(
+        hmac.new(LINE_CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()
+    ).decode("ascii")
+    if not signature or not hmac.compare_digest(expected_signature, signature):
         logger.warning("無效的 LINE 簽章，請求被拒絕。")
         raise HTTPException(status_code=400, detail="Invalid signature")
-    except Exception as e:
-        logger.error("處理 Webhook 時發生異常: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
 
+    body_text = body.decode("utf-8")
+    background_tasks.add_task(process_webhook, body_text, signature)
     return JSONResponse(content={"status": "OK"})
 
 def reply_line_message(reply_token: str, text: str, attach_quick_reply: bool = True):

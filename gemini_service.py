@@ -25,10 +25,17 @@ class LLMService:
         # 1. Google Gemini 設定
         self.gemini_key = os.getenv("GEMINI_API_KEY", "")
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        self.gemini_timeout_ms = int(os.getenv("GEMINI_TIMEOUT_MS", "12000"))
         self.gemini_client: Optional[genai.Client] = None
         if self.gemini_key:
             try:
-                self.gemini_client = genai.Client(api_key=self.gemini_key)
+                self.gemini_client = genai.Client(
+                    api_key=self.gemini_key,
+                    http_options=types.HttpOptions(
+                        timeout=self.gemini_timeout_ms,
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    ),
+                )
                 logger.info("Gemini 客戶端初始化成功 (模型: %s)", self.gemini_model)
             except Exception as e:
                 logger.error("Gemini 初始化失敗: %s", e)
@@ -36,12 +43,15 @@ class LLMService:
         # 2. OpenRouter / OpenCode 雲端開源模型設定 (OpenAI 相容協議)
         self.openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
         self.openrouter_model = os.getenv("OPENROUTER_MODEL", "liquid/lfm-2.5-2.6b:free")
+        self.openrouter_timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "12"))
         self.openrouter_client: Optional[OpenAI] = None
         if self.openrouter_key:
             try:
                 self.openrouter_client = OpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=self.openrouter_key,
+                    timeout=self.openrouter_timeout_seconds,
+                    max_retries=0,
                 )
                 logger.info("OpenRouter 客戶端初始化成功 (模型: %s)", self.openrouter_model)
             except Exception as e:
@@ -50,9 +60,12 @@ class LLMService:
         # 3. 本地 Ollama 模型設定
         self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+        self.ollama_timeout_seconds = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "18"))
         self.ollama_client = OpenAI(
             base_url=f"{self.ollama_base_url}/v1",
             api_key="ollama", # 本地無需 key
+            timeout=self.ollama_timeout_seconds,
+            max_retries=0,
         )
 
         # 使用者設定快取
@@ -136,10 +149,10 @@ class LLMService:
             "📊 【多核心 AI 連線狀態報告】\n\n"
             f"• 目前選擇模式：【{current_mode.upper()}】\n\n"
             "引擎連線狀況：\n"
-            f"1. 🔵 Google Gemini: {'🟢 可用 (' + self.gemini_model + ')' if gemini_ok else '⚪ 未配置'}\n"
-            f"2. 🌐 OpenRouter (雲端免費): {'🟢 可用 (' + self.openrouter_model + ')' if openrouter_ok else '⚪ 未配置 Key'}\n"
+            f"1. 🔵 Google Gemini: {'🟢 已設定 (' + self.gemini_model + ')' if gemini_ok else '⚪ 未配置'}\n"
+            f"2. 🌐 OpenRouter (雲端免費): {'🟢 已設定 (' + self.openrouter_model + ')' if openrouter_ok else '⚪ 未配置 Key'}\n"
             f"3. 💻 本地 Ollama (離線開源): {'🟢 運行中 (' + self.ollama_model + ')' if ollama_ok else '🔴 離線 (未開啟服務)'}\n\n"
-            "💡 當處於 AUTO 模式時，系統會在遇到斷線或限流時自動無縫轉移！"
+            "💡 AUTO 模式會在呼叫失敗或逾時時嘗試已設定的備援引擎。"
         )
 
     # 內部調用 1: Gemini
@@ -160,7 +173,10 @@ class LLMService:
             contents=contents_payload,
             config=config,
         )
-        return (res.text or "").strip()
+        text = (res.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini 回傳空白內容")
+        return text
 
     # 內部調用 2: OpenRouter (雲端免費開源模型)
     def _call_openrouter(self, user_id: str, prompt: str, system_instruct: str, history: list) -> str:
@@ -184,7 +200,10 @@ class LLMService:
             temperature=0.7,
             max_tokens=2048,
         )
-        return res.choices[0].message.content.strip()
+        content = res.choices[0].message.content
+        if not content or not content.strip():
+            raise RuntimeError("OpenRouter 回傳空白內容")
+        return content.strip()
 
     # 內部調用 3: Ollama (本機開源模型)
     def _call_ollama(self, user_id: str, prompt: str, system_instruct: str, history: list) -> str:
@@ -205,7 +224,10 @@ class LLMService:
             temperature=0.7,
             max_tokens=1500,
         )
-        return res.choices[0].message.content.strip()
+        content = res.choices[0].message.content
+        if not content or not content.strip():
+            raise RuntimeError("Ollama 回傳空白內容")
+        return content.strip()
 
     def generate_reply(self, user_id: str, prompt: str) -> str:
         """核心對話處理入口"""
@@ -248,21 +270,24 @@ class LLMService:
                 reply_text = self._call_gemini(user_id, cleaned, sys_instruct, history)
                 engine_used = "Gemini"
             except Exception as e:
-                return f"⚠️ 【Gemini 呼叫失敗】：{e}\n您可以輸入 `/model auto` 切換自動備援。"
+                logger.warning("Gemini 呼叫失敗: %s", e)
+                return "⚠️ Gemini 目前無法回應（可能是額度、模型設定或連線問題）。\n請稍後重試，或輸入 `/model auto` 使用備援。"
 
         elif mode == "openrouter":
             try:
                 reply_text = self._call_openrouter(user_id, cleaned, sys_instruct, history)
                 engine_used = f"OpenRouter ({self.openrouter_model})"
             except Exception as e:
-                return f"⚠️ 【OpenRouter 呼叫失敗】：{e}\n請確認 .env 已填寫 OPENROUTER_API_KEY。"
+                logger.warning("OpenRouter 呼叫失敗: %s", e)
+                return "⚠️ OpenRouter 目前無法回應。\n請確認 API Key、模型設定與連線，或輸入 `/model auto` 使用備援。"
 
         elif mode == "local":
             try:
                 reply_text = self._call_ollama(user_id, cleaned, sys_instruct, history)
                 engine_used = f"Ollama 本地 ({self.ollama_model})"
             except Exception as e:
-                return f"⚠️ 【本地 Ollama 呼叫失敗】：{e}\n請確認您已在本機開啟 Ollama 並且已下載模型。"
+                logger.warning("Ollama 呼叫失敗: %s", e)
+                return "⚠️ 本機 Ollama 目前無法回應。\n請確認 Ollama 正在執行且已下載指定模型。"
 
         else: # auto 自動三重容錯備援
             # 第一順位：Gemini
@@ -290,9 +315,9 @@ class LLMService:
 
                 if not reply_text:
                     return (
-                        "⚠️ 抱歉，目前所有可用 AI 引擎皆暫時無法回應：\n"
-                        f"• Gemini 錯誤: {str(gemini_err)[:100]}\n\n"
-                        "建議稍後重試，或輸入 `/status` 檢查各引擎狀態。"
+                        "⚠️ 目前所有已設定的 AI 引擎都無法回應。\n"
+                        "Gemini 可能遇到額度或連線限制；雲端備援或本機 Ollama 也可能尚未設定或啟動。\n\n"
+                        "請稍後重試，或輸入 `/status` 查看設定狀態。"
                     )
 
         # 更新對話記憶

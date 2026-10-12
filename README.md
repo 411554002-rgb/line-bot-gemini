@@ -1,16 +1,17 @@
 # LINE Bot 多核心智慧對話機器人 (Gemini + OpenRouter + 本地 Ollama)
 
-本專案使用 **Python 3 (FastAPI)** 建置 LINE Messaging API Webhook 伺服器，並升級為 **「雲端高智能 + 雲端開源免費 + 本機離線開源」三合一混合引擎**。無論網路順暢與否或遇到 API 額度超限，系統皆能無縫切換，保障服務 100% 不斷線！
+本專案使用 **Python 3 (FastAPI)** 建置 LINE Messaging API Webhook 伺服器，並支援 **Gemini、OpenRouter 與本機 Ollama** 三種引擎。自動模式會在引擎呼叫失敗時嘗試已設定的備援；服務仍取決於網路、API 額度、金鑰與本機 Ollama 狀態。
 
 ---
 
 ## 🌟 核心特色功能 (v3.0 多引擎混合升級版)
 
 - 🔀 **多核心混合架構 (Hybrid AI Engine)**：
-  - 🔵 **Google Gemini 3.8**：超強邏輯推理與日常問答。
+  - 🔵 **Google Gemini 3.8 Flash**：日常問答與推理（依 `.env` 設定模型）。
   - 🌐 **OpenRouter / OpenCode 免費雲端開源模型**：支援多元開源大模型，無縫切換。
   - 💻 **本機離線 Ollama 開源模型**：100% 在本機電腦運算（推薦 Qwen 2.5 1.5B / Llama 3.2），完全免外網、高隱私、零成本。
-- ⚙️ **自動智慧備援 (Auto Fallback)**：當主模型遇到超額 (429) 或網路異常時，自動依序切換備援引擎。
+- ⚙️ **自動智慧備援 (Auto Fallback)**：當主模型遇到超額 (429)、逾時或網路異常時，自動依序嘗試已設定的備援引擎。
+- 🛟 **Webhook 防卡住處理**：先驗證 LINE 簽章並快速回應 Webhook，再於背景處理訊息；雲端與本機模型均設定請求逾時，避免單一引擎長時間卡住。
 - 🎯 **繁體中文精準人設引導**：預設融入在地化習慣用語、時間認知與優質條列排版。
 - 🎭 **動態自訂人設 (/role)**：使用者可在聊天中隨時更換專家角色（如英文家教、程式導師、健身教練）。
 - ⏳ **原生載入中動畫 (Loading Animation)**：在 AI 思考期間於 LINE 介面展示動畫，消除等待焦慮。
@@ -69,13 +70,16 @@ LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_CHANNEL_ACCESS_TOKEN
 # 1. Google Gemini Key
 GEMINI_API_KEY=你的_GEMINI_API_KEY
 GEMINI_MODEL=gemini-3.8-flash
+GEMINI_TIMEOUT_MS=12000
 
 # 2. OpenRouter 免費 Key (選填，至 openrouter.ai/keys 免費領取)
 OPENROUTER_API_KEY=
+OPENROUTER_TIMEOUT_SECONDS=12
 
 # 3. 本地 Ollama 設定 (預設即可)
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:1.5b
+OLLAMA_TIMEOUT_SECONDS=18
 ```
 
 ---
