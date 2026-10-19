@@ -269,7 +269,8 @@ def main():
         old = None
     else:
         sys.exit(f"讀不到 LINE 現在的 Webhook 網址（{code}）：先不換。等一下再跑一次。{cur}")
-    log(f"   原本的 Webhook：{old or '（沒有設定）'}——先抄下來，萬一沒換回去要手動貼回")
+    display_old = re.sub(r"/macros/s/.+?/exec", "/macros/s/***HIDDEN***/exec", old) if old else "（沒有設定）"
+    log(f"   原本的 Webhook：{display_old}（已自動遮蔽避免截圖違規）")
     log(f"載入模型 {MODEL}（第一次要等一下）…")
     chat([{"role": "user", "content": "hi"}])
     log("✅ 模型可以用了")
@@ -280,18 +281,24 @@ def main():
     try:
         url = open_tunnel()
         if url:
-            code, res = line("PUT", "/v2/bot/channel/webhook/endpoint", {"endpoint": url + "/callback"})
-            if code != 200:
-                log(f"⚠️ 換 Webhook 失敗 {code}：{res}。可以手動貼到 LINE Developers：{url}/callback")
+            log("⏳ 等候通道就緒並自動設定 LINE Webhook…")
+            time.sleep(4)  # 等待 Cloudflare DNS 全球節點生效
+            for attempt in range(3):
+                code, res = line("PUT", "/v2/bot/channel/webhook/endpoint", {"endpoint": url + "/callback"})
+                if code == 200:
+                    switched = True
+                    break
+                time.sleep(3)
+
+            if not switched:
+                log(f"⚠️ 自動換 Webhook 失敗 ({code})。請手動複製此網址貼到 LINE Developers ➔ Messaging API ➔ Webhook URL：\n   👉 {url}/callback")
             else:
-                switched = True
                 log(f"✅ LINE 的 Webhook 換到這台電腦了：{url}/callback（按 Ctrl+C 會換回去）")
                 log("   LINE 說換網址最多要 1 分鐘才生效；等一下再用手機傳訊息")
-                time.sleep(5)
+                time.sleep(3)
                 code, test = line("POST", "/v2/bot/channel/webhook/test", {})
                 log(f"   LINE 測試連線：{'✅ 通了' if test.get('success') else '還沒通（' + str(test.get('reason')) + '），等一分鐘再傳'}")
-        log("開好了。手機傳訊息給 bot 試試看；這個視窗不要關，按 Ctrl+C 結束。" if switched
-            else "⚠️ 這次沒接上 LINE（看上面的訊息）。按 Ctrl+C 結束。")
+        log("🚀 轉接站已就緒！請用手機 LINE 傳訊息測試（此視窗請勿關閉，結束時按 Ctrl+C）。")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
